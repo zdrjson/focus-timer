@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus Timer</title>
+<style>
+  :root {
+    --work: #ff6b6b;
+    --break: #4ecdc4;
+    --bg: #1a1a2e;
+    --panel: #16213e;
+    --text: #e9e9f0;
+    --muted: #8a8aa0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.6s ease;
+  }
+  body.break-mode { background: #0f2027; }
+  .app {
+    text-align: center;
+    padding: 2rem;
+    width: 100%;
+    max-width: 420px;
+  }
+  .mode-label {
+    font-size: 0.85rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1.5rem;
+    font-weight: 600;
+  }
+  .ring-wrap {
+    position: relative;
+    width: 280px;
+    height: 280px;
+    margin: 0 auto;
+  }
+  svg { transform: rotate(-90deg); }
+  .ring-bg { fill: none; stroke: var(--panel); stroke-width: 12; }
+  .ring-fg {
+    fill: none;
+    stroke: var(--work);
+    stroke-width: 12;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.95s linear, stroke 0.6s ease;
+  }
+  .break-mode .ring-fg { stroke: var(--break); }
+  .time-display {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3.4rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  .session-count {
+    position: absolute;
+    top: 62%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.8rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .controls {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    margin-top: 2rem;
+  }
+  button {
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    padding: 0.7rem 1.6rem;
+    cursor: pointer;
+    transition: transform 0.1s ease, background 0.2s ease, opacity 0.2s ease;
+  }
+  button:hover { background: #1f2d52; }
+  button:active { transform: scale(0.96); }
+  button.primary { background: var(--work); border-color: transparent; color: #1a1a2e; }
+  .break-mode button.primary { background: var(--break); }
+  button.primary:hover { opacity: 0.9; background: var(--work); }
+  .break-mode button.primary:hover { background: var(--break); }
+  .settings {
+    margin-top: 2.2rem;
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .setting {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .setting label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .setting input {
+    width: 64px;
+    text-align: center;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 0.5rem;
+  }
+  .setting input:focus { outline: 2px solid var(--work); }
+  .stats {
+    margin-top: 1.8rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+  .log {
+    list-style: none;
+    margin: 0.8rem auto 0;
+    max-width: 320px;
+    max-height: 150px;
+    overflow-y: auto;
+    text-align: left;
+  }
+  .log:empty { display: none; }
+  .log li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: 8px;
+    background: var(--panel);
+    margin-bottom: 0.4rem;
+  }
+  .log li .tag { color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="mode-label" id="modeLabel">Focus</div>
+    <div class="ring-wrap">
+      <svg width="280" height="280" viewBox="0 0 280 280">
+        <circle class="ring-bg" cx="140" cy="140" r="130"></circle>
+        <circle class="ring-fg" id="ring" cx="140" cy="140" r="130"></circle>
+      </svg>
+      <div class="time-display" id="time">25:00</div>
+      <div class="session-count" id="sessions">Round 1</div>
+    </div>
+    <div class="controls">
+      <button class="primary" id="startBtn">Start</button>
+      <button id="resetBtn">Reset</button>
+      <button id="skipBtn">Skip</button>
+    </div>
+    <div class="settings">
+      <div class="setting">
+        <label for="workMin">Work (min)</label>
+        <input type="number" id="workMin" min="1" max="120" value="25">
+      </div>
+      <div class="setting">
+        <label for="breakMin">Break (min)</label>
+        <input type="number" id="breakMin" min="1" max="60" value="5">
+      </div>
+      <div class="setting">
+        <label for="longMin">Long (min)</label>
+        <input type="number" id="longMin" min="1" max="60" value="15">
+      </div>
+    </div>
+    <div class="stats" id="stats">No focus sessions logged today</div>
+    <ul class="log" id="log"></ul>
+  </div>
+
+<script>
+(function () {
+  const RADIUS = 130;
+  const CIRC = 2 * Math.PI * RADIUS;
+
+  const ring = document.getElementById('ring');
+  const timeEl = document.getElementById('time');
+  const modeLabel = document.getElementById('modeLabel');
+  const sessionsEl = document.getElementById('sessions');
+  const startBtn = document.getElementById('startBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const skipBtn = document.getElementById('skipBtn');
+  const workInput = document.getElementById('workMin');
+  const breakInput = document.getElementById('breakMin');
+  const longInput = document.getElementById('longMin');
+  const statsEl = document.getElementById('stats');
+  const logEl = document.getElementById('log');
+
+  ring.style.strokeDasharray = CIRC;
+
+  const ROUNDS_BEFORE_LONG = 4;
+
+  let mode = 'work';        // 'work' | 'break'
+  let breakType = 'short';  // 'short' | 'long' (only meaningful when mode === 'break')
+  let round = 1;
+  let total = 25 * 60;      // seconds for current phase
+  let remaining = total;
+  let running = false;
+  let endTime = null;       // timestamp when phase ends
+  let raf = null;
+  let log = loadLog();
+
+  function workSecs() { return Math.max(1, parseInt(workInput.value, 10) || 1) * 60; }
+  function breakSecs() { return Math.max(1, parseInt(breakInput.value, 10) || 1) * 60; }
+  function longSecs() { return Math.max(1, parseInt(longInput.value, 10) || 1) * 60; }
+
+  function fmt(s) {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+  }
+
+  function phaseLabel() {
+    if (mode === 'work') return 'Focus';
+    return breakType === 'long' ? 'Long Break' : 'Break';
+  }
+
+  function render() {
+    const label = phaseLabel();
+    timeEl.textContent = fmt(remaining);
+    const frac = total > 0 ? remaining / total : 0;
+    ring.style.strokeDashoffset = CIRC * (1 - frac);
+    modeLabel.textContent = label;
+    sessionsEl.textContent = 'Round ' + round;
+    document.body.classList.toggle('break-mode', mode !== 'work');
+    document.title = (running ? fmt(remaining) + ' · ' : '') + label + ' — Focus Timer';
+  }
+
+  function tick() {
+    if (!running) return;
+    remaining = Math.max(0, (endTime - Date.now()) / 1000);
+    render();
+    if (remaining <= 0) {
+      phaseComplete();
+      return;
+    }
+    raf = requestAnimationFrame(tick);
+  }
+
+  function setInputsDisabled(d) {
+    workInput.disabled = breakInput.disabled = longInput.disabled = d;
+  }
+
+  function start() {
+    if (running) return;
+    requestNotify();
+    running = true;
+    endTime = Date.now() + remaining * 1000;
+    startBtn.textContent = 'Pause';
+    setInputsDisabled(true);
+    tick();
+  }
+
+  function pause() {
+    running = false;
+    cancelAnimationFrame(raf);
+    startBtn.textContent = 'Resume';
+    render();
+  }
+
+  function toggle() { running ? pause() : start(); }
+
+  // Advance to the next phase. work -> break (long every Nth round) -> work.
+  function nextPhase() {
+    if (mode === 'work') {
+      mode = 'break';
+      breakType = (round % ROUNDS_BEFORE_LONG === 0) ? 'long' : 'short';
+      total = breakType === 'long' ? longSecs() : breakSecs();
+    } else {
+      mode = 'work';
+      round++;
+      total = workSecs();
+    }
+    remaining = total;
+    render();
+  }
+
+  function reset() {
+    running = false;
+    cancelAnimationFrame(raf);
+    mode = 'work';
+    breakType = 'short';
+    round = 1;
+    total = workSecs();
+    remaining = total;
+    startBtn.textContent = 'Start';
+    setInputsDisabled(false);
+    render();
+  }
+
+  function phaseComplete() {
+    running = false;
+    cancelAnimationFrame(raf);
+    const finishedLabel = phaseLabel();
+    const finishedMins = Math.round(total / 60);
+    logPhase(finishedLabel, finishedMins);
+    chime();
+    notify(finishedLabel);
+    nextPhase();
+    // auto-start the next phase for a smooth flow
+    start();
+  }
+
+  function skip() {
+    cancelAnimationFrame(raf);
+    running = false;
+    nextPhase();
+    startBtn.textContent = 'Start';
+    setInputsDisabled(false);
+    render();
+  }
+
+  // ----- Session log (persisted in localStorage) -----
+  function loadLog() {
+    try { return JSON.parse(localStorage.getItem('focusLog') || '[]'); }
+    catch (e) { return []; }
+  }
+  function saveLog() {
+    try { localStorage.setItem('focusLog', JSON.stringify(log.slice(0, 100))); }
+    catch (e) { /* storage unavailable */ }
+  }
+  function logPhase(label, mins) {
+    log.unshift({ label: label, mins: mins, ts: Date.now() });
+    log = log.slice(0, 100);
+    saveLog();
+    renderLog();
+  }
+  function renderLog() {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const today = log.filter(function (e) { return e.ts >= startOfDay.getTime(); });
+    const focusToday = today.filter(function (e) { return e.label === 'Focus'; });
+    const mins = focusToday.reduce(function (a, e) { return a + e.mins; }, 0);
+    statsEl.textContent = focusToday.length === 0
+      ? 'No focus sessions logged today'
+      : focusToday.length + ' focus session' + (focusToday.length === 1 ? '' : 's') +
+        ' today · ' + mins + 'm focused';
+    logEl.innerHTML = log.slice(0, 20).map(function (e) {
+      const t = new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return '<li><span>' + e.label + ' · ' + e.mins + 'm</span>' +
+        '<span class="tag">' + t + '</span></li>';
+    }).join('');
+  }
+
+  // ----- Desktop notifications -----
+  function requestNotify() {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }
+  function notify(finishedLabel) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const body = finishedLabel === 'Focus'
+      ? 'Focus session done — time for a break.'
+      : 'Break over — back to focus.';
+    try { new Notification('Focus Timer', { body: body }); } catch (e) { /* ignore */ }
+  }
+
+  // Web Audio chime — no external file needed.
+  let audioCtx = null;
+  function chime() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const notes = mode === 'work' ? [880, 1108, 1318] : [659, 523, 440];
+      notes.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const t = audioCtx.currentTime + i * 0.18;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.5);
+      });
+    } catch (e) { /* audio not available */ }
+  }
+
+  startBtn.addEventListener('click', toggle);
+  resetBtn.addEventListener('click', reset);
+  skipBtn.addEventListener('click', skip);
+
+  function syncCurrentPhaseDuration() {
+    if (running) return;
+    if (mode === 'work') total = workSecs();
+    else total = breakType === 'long' ? longSecs() : breakSecs();
+    remaining = total;
+    render();
+  }
+  workInput.addEventListener('change', syncCurrentPhaseDuration);
+  breakInput.addEventListener('change', syncCurrentPhaseDuration);
+  longInput.addEventListener('change', syncCurrentPhaseDuration);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+    if (e.key.toLowerCase() === 'r') reset();
+    if (e.key.toLowerCase() === 's') skip();
+  });
+
+  renderLog();
+  render();
+})();
+</script>
+</body>
+</html>
