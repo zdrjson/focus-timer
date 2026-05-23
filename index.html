@@ -130,6 +130,35 @@
     padding: 0.5rem;
   }
   .setting input:focus { outline: 2px solid var(--work); }
+  .task-input {
+    width: 100%;
+    max-width: 320px;
+    margin: 1.6rem auto 0;
+    display: block;
+    font-family: inherit;
+    font-size: 1rem;
+    text-align: center;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    padding: 0.7rem 1.2rem;
+  }
+  .task-input::placeholder { color: var(--muted); }
+  .task-input:focus { outline: 2px solid var(--work); }
+  .break-mode .task-input:focus { outline-color: var(--break); }
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.6rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .toggle input { width: 1rem; height: 1rem; accent-color: var(--work); cursor: pointer; }
+  .break-mode .toggle input { accent-color: var(--break); }
   .stats {
     margin-top: 1.8rem;
     font-size: 0.78rem;
@@ -169,6 +198,8 @@
       <div class="time-display" id="time">25:00</div>
       <div class="session-count" id="sessions">Round 1</div>
     </div>
+    <input class="task-input" id="taskInput" type="text" maxlength="80" autocomplete="off"
+           placeholder="What are you working on?">
     <div class="controls">
       <button class="primary" id="startBtn">Start</button>
       <button id="resetBtn">Reset</button>
@@ -187,7 +218,15 @@
         <label for="longMin">Long (min)</label>
         <input type="number" id="longMin" min="1" max="60" value="15">
       </div>
+      <div class="setting">
+        <label for="goalInput">Goal (today)</label>
+        <input type="number" id="goalInput" min="1" max="20" value="8">
+      </div>
     </div>
+    <label class="toggle" for="autoStart">
+      <input type="checkbox" id="autoStart" checked>
+      Auto-start next phase
+    </label>
     <div class="stats" id="stats">No focus sessions logged today</div>
     <ul class="log" id="log"></ul>
   </div>
@@ -207,6 +246,9 @@
   const workInput = document.getElementById('workMin');
   const breakInput = document.getElementById('breakMin');
   const longInput = document.getElementById('longMin');
+  const goalInput = document.getElementById('goalInput');
+  const taskInput = document.getElementById('taskInput');
+  const autoStartEl = document.getElementById('autoStart');
   const statsEl = document.getElementById('stats');
   const logEl = document.getElementById('log');
 
@@ -227,6 +269,36 @@
   function workSecs() { return Math.max(1, parseInt(workInput.value, 10) || 1) * 60; }
   function breakSecs() { return Math.max(1, parseInt(breakInput.value, 10) || 1) * 60; }
   function longSecs() { return Math.max(1, parseInt(longInput.value, 10) || 1) * 60; }
+  function goalVal() { return Math.max(1, parseInt(goalInput.value, 10) || 1); }
+
+  // ----- Settings (persisted in localStorage) -----
+  function loadSettings() {
+    let s = {};
+    try { s = JSON.parse(localStorage.getItem('focusSettings') || '{}'); }
+    catch (e) { s = {}; }
+    if (s.work) workInput.value = s.work;
+    if (s.brk) breakInput.value = s.brk;
+    if (s.long) longInput.value = s.long;
+    if (s.goal) goalInput.value = s.goal;
+    if (typeof s.autoStart === 'boolean') autoStartEl.checked = s.autoStart;
+    if (typeof s.task === 'string') taskInput.value = s.task;
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem('focusSettings', JSON.stringify({
+        work: workInput.value,
+        brk: breakInput.value,
+        long: longInput.value,
+        goal: goalInput.value,
+        autoStart: autoStartEl.checked,
+        task: taskInput.value.trim()
+      }));
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  loadSettings();
+  total = workSecs();
+  remaining = total;
 
   function fmt(s) {
     const m = Math.floor(s / 60);
@@ -317,12 +389,18 @@
     cancelAnimationFrame(raf);
     const finishedLabel = phaseLabel();
     const finishedMins = Math.round(total / 60);
-    logPhase(finishedLabel, finishedMins);
+    const finishedTask = mode === 'work' ? taskInput.value.trim() : '';
+    logPhase(finishedLabel, finishedMins, finishedTask);
     chime();
     notify(finishedLabel);
     nextPhase();
-    // auto-start the next phase for a smooth flow
-    start();
+    if (autoStartEl.checked) {
+      start();
+    } else {
+      startBtn.textContent = 'Start';
+      setInputsDisabled(false);
+      render();
+    }
   }
 
   function skip() {
@@ -343,25 +421,58 @@
     try { localStorage.setItem('focusLog', JSON.stringify(log.slice(0, 100))); }
     catch (e) { /* storage unavailable */ }
   }
-  function logPhase(label, mins) {
-    log.unshift({ label: label, mins: mins, ts: Date.now() });
+  function logPhase(label, mins, task) {
+    log.unshift({ label: label, mins: mins, ts: Date.now(), task: task || '' });
     log = log.slice(0, 100);
     saveLog();
     renderLog();
+  }
+  function dayKey(ts) {
+    const d = new Date(ts);
+    return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+  }
+  // Consecutive days (ending today, or yesterday if today's goal isn't met yet)
+  // that reached the focus-session goal.
+  function computeStreak(goal) {
+    const byDay = {};
+    log.forEach(function (e) {
+      if (e.label !== 'Focus') return;
+      const k = dayKey(e.ts);
+      byDay[k] = (byDay[k] || 0) + 1;
+    });
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    if ((byDay[dayKey(d.getTime())] || 0) < goal) d.setDate(d.getDate() - 1);
+    let streak = 0;
+    while ((byDay[dayKey(d.getTime())] || 0) >= goal) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    }
+    return streak;
+  }
+  function escapeHtml(str) {
+    return str.replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
   }
   function renderLog() {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const today = log.filter(function (e) { return e.ts >= startOfDay.getTime(); });
     const focusToday = today.filter(function (e) { return e.label === 'Focus'; });
+    const count = focusToday.length;
     const mins = focusToday.reduce(function (a, e) { return a + e.mins; }, 0);
-    statsEl.textContent = focusToday.length === 0
-      ? 'No focus sessions logged today'
-      : focusToday.length + ' focus session' + (focusToday.length === 1 ? '' : 's') +
-        ' today · ' + mins + 'm focused';
+    const goal = goalVal();
+    const streak = computeStreak(goal);
+    let stats = count + ' / ' + goal + ' today';
+    if (mins > 0) stats += ' · ' + mins + 'm focused';
+    if (count >= goal) stats += ' · goal reached';
+    if (streak > 0) stats += ' · ' + streak + '-day streak';
+    statsEl.textContent = stats;
     logEl.innerHTML = log.slice(0, 20).map(function (e) {
       const t = new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      return '<li><span>' + e.label + ' · ' + e.mins + 'm</span>' +
+      const name = e.task ? ' — ' + escapeHtml(e.task) : '';
+      return '<li><span>' + e.label + ' · ' + e.mins + 'm' + name + '</span>' +
         '<span class="tag">' + t + '</span></li>';
     }).join('');
   }
@@ -407,6 +518,7 @@
   skipBtn.addEventListener('click', skip);
 
   function syncCurrentPhaseDuration() {
+    saveSettings();
     if (running) return;
     if (mode === 'work') total = workSecs();
     else total = breakType === 'long' ? longSecs() : breakSecs();
@@ -416,6 +528,9 @@
   workInput.addEventListener('change', syncCurrentPhaseDuration);
   breakInput.addEventListener('change', syncCurrentPhaseDuration);
   longInput.addEventListener('change', syncCurrentPhaseDuration);
+  goalInput.addEventListener('change', function () { saveSettings(); renderLog(); });
+  autoStartEl.addEventListener('change', saveSettings);
+  taskInput.addEventListener('input', saveSettings);
 
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') return;
