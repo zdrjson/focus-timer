@@ -5,9 +5,12 @@ A minimal [Pomodoro](https://en.wikipedia.org/wiki/Pomodoro_Technique) timer tha
 ## Features
 
 - **Work / break cycles** with a circular progress ring and live countdown.
+- **Task labels** — name what you're working on; it's saved with each logged focus session.
 - **Configurable durations** for focus, short break, and long break.
 - **Long break every 4 rounds**, then the cycle repeats.
-- **Auto-start** of the next phase for an uninterrupted flow.
+- **Auto-start toggle** — flow straight into the next phase, or pause to confirm.
+- **Daily goal & streak** — set a target number of sessions and track consecutive days you hit it.
+- **Saved settings** — durations, goal, task, and the auto-start preference persist via `localStorage`.
 - **Desktop notifications** and an audio chime when each phase ends.
 - **Daily session log** with focus stats, saved in your browser via `localStorage`.
 - **Dark, responsive UI** that works on desktop and mobile.
@@ -23,7 +26,7 @@ open index.html
 # or just double-click the file in your file manager
 ```
 
-Set your work, break, and long-break lengths in the inputs, then press **Start**.
+Type what you're working on in the task field, set your work, break, and long-break lengths, pick a daily goal, then press **Start**.
 
 ## Keyboard shortcuts
 
